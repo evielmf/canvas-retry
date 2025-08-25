@@ -1,0 +1,57 @@
+# FastAPI Backend Requirements for Canvas API Integration
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+python-multipart==0.0.6
+httpx==0.25.2
+asyncio==3.4.3
+aiofiles==23.2.1
+
+# Database
+asyncpg==0.29.0
+supabase==2.3.0
+psycopg2-binary==2.9.9
+
+# Security & Authentication
+cryptography==41.0.8
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+
+# Canvas API Integration
+canvasapi==3.2.0
+
+# Parallel Processing
+asyncio-throttle==1.0.2
+aiofiles==23.2.1
+concurrent-futures==3.1.1
+
+# Monitoring & Logging
+structlog==23.2.0
+python-json-logger==2.0.7
+
+# Data Processing
+pandas==2.1.4
+numpy==1.25.2
+
+# Environment Management
+python-dotenv==1.0.0
+
+# Background Tasks
+celery==5.3.4
+redis==5.0.1
+
+# Rate Limiting
+slowapi==0.1.9
+
+# CORS
+fastapi-cors==0.0.6
+
+# Validation
+email-validator==2.1.0
+
+# Testing (optional)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
