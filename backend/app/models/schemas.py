@@ -253,8 +253,148 @@ class CanvasGrade(BaseModel):
     grades: Optional[Dict[str, Any]] = {}
 
 
+class CanvasAnnouncement(BaseModel):
+    """Canvas announcement from API"""
+    id: int
+    title: str
+    message: Optional[str]
+    posted_at: Optional[str]
+    delayed_post_at: Optional[str]
+    author: Optional[Dict[str, Any]]
+    course_id: int
+
+
+class CanvasDiscussion(BaseModel):
+    """Canvas discussion from API"""
+    id: int
+    title: str
+    message: Optional[str]
+    posted_at: Optional[str]
+    last_reply_at: Optional[str]
+    discussion_type: Optional[str]
+    author: Optional[Dict[str, Any]]
+    course_id: int
+
+
+class CanvasCalendarEvent(BaseModel):
+    """Canvas calendar event from API"""
+    id: int
+    title: str
+    description: Optional[str]
+    start_at: Optional[str]
+    end_at: Optional[str]
+    location_name: Optional[str]
+    context_code: Optional[str]
+    workflow_state: Optional[str]
+    course_id: Optional[int]
+
+
+class CanvasModule(BaseModel):
+    """Canvas module from API"""
+    id: int
+    name: str
+    position: Optional[int]
+    unlock_at: Optional[str]
+    require_sequential_progress: Optional[bool]
+    prerequisite_module_ids: Optional[List[int]]
+    state: Optional[str]
+    course_id: int
+
+
+class CanvasModuleItem(BaseModel):
+    """Canvas module item from API"""
+    id: int
+    title: str
+    position: Optional[int]
+    type: Optional[str]
+    content_id: Optional[int]
+    html_url: Optional[str]
+    url: Optional[str]
+    completion_requirement: Optional[Dict[str, Any]]
+    module_id: int
+    course_id: int
+
+
+class CanvasQuiz(BaseModel):
+    """Canvas quiz from API"""
+    id: int
+    title: str
+    description: Optional[str]
+    quiz_type: Optional[str]
+    assignment_id: Optional[int]
+    time_limit: Optional[int]
+    allowed_attempts: Optional[int]
+    due_at: Optional[str]
+    unlock_at: Optional[str]
+    lock_at: Optional[str]
+    points_possible: Optional[float]
+    course_id: int
+
+
+class CanvasFile(BaseModel):
+    """Canvas file from API"""
+    id: int
+    display_name: str
+    filename: str
+    content_type: Optional[str]
+    url: Optional[str]
+    size: Optional[int]
+    created_at: Optional[str]
+    updated_at: Optional[str]
+    folder_id: Optional[int]
+    course_id: Optional[int]
+
+
+class CanvasPage(BaseModel):
+    """Canvas page from API"""
+    id: Optional[int]
+    title: str
+    body: Optional[str]
+    created_at: Optional[str]
+    updated_at: Optional[str]
+    published: Optional[bool]
+    front_page: Optional[bool]
+    url: Optional[str]
+    course_id: int
+
+
+class CanvasRubric(BaseModel):
+    """Canvas rubric from API"""
+    id: int
+    title: str
+    context_id: Optional[int]
+    context_type: Optional[str]
+    points_possible: Optional[float]
+    criteria: Optional[List[Dict[str, Any]]]
+    course_id: int
+
+
+class CanvasUserProfile(BaseModel):
+    """Canvas user profile from API"""
+    id: int
+    name: str
+    short_name: Optional[str]
+    sortable_name: Optional[str]
+    avatar_url: Optional[str]
+    bio: Optional[str]
+    primary_email: Optional[str]
+    login_id: Optional[str]
+    time_zone: Optional[str]
+    locale: Optional[str]
+
+
 class CanvasSyncData(BaseModel):
     """Complete Canvas sync data"""
     courses: List[CanvasCourse]
     assignments: List[CanvasAssignment]
     grades: List[CanvasGrade]
+    announcements: List[CanvasAnnouncement]
+    discussions: List[CanvasDiscussion]
+    calendar_events: List[CanvasCalendarEvent]
+    modules: List[CanvasModule]
+    module_items: List[CanvasModuleItem]
+    quizzes: List[CanvasQuiz]
+    files: List[CanvasFile]
+    pages: List[CanvasPage]
+    rubrics: List[CanvasRubric]
+    user_profile: Optional[CanvasUserProfile]

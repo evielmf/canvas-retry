@@ -15,7 +15,9 @@ from app.config import settings
 from app.models.schemas import (
     CanvasConnection, Course, Assignment, Grade, SyncLog,
     CanvasCourse, CanvasAssignment, CanvasGrade, CanvasSyncData,
-    UserProfile, DashboardStats
+    UserProfile, DashboardStats, CanvasAnnouncement, CanvasDiscussion,
+    CanvasCalendarEvent, CanvasModule, CanvasModuleItem, CanvasQuiz,
+    CanvasFile, CanvasPage, CanvasRubric, CanvasUserProfile
 )
 from app.services.canvas_service import CanvasTokenManager
 
@@ -162,12 +164,17 @@ class DatabaseService:
         connection_id: str, 
         sync_data: CanvasSyncData
     ) -> int:
-        """Sync Canvas data to database with parallel processing"""
+        """Sync comprehensive Canvas data to database with parallel processing"""
         total_synced = 0
         
         async with self.connection_pool.acquire() as conn:
             async with conn.transaction():
-                # Sync courses
+                # Sync user profile first
+                if sync_data.user_profile:
+                    await self._sync_user_profile(conn, user_id, sync_data.user_profile)
+                    total_synced += 1
+                
+                # Sync courses and get course mapping
                 course_mapping = {}
                 for canvas_course in sync_data.courses:
                     row = await conn.fetchrow("""
@@ -201,6 +208,7 @@ class DatabaseService:
                     total_synced += 1
                 
                 # Sync assignments
+                assignment_mapping = {}
                 for canvas_assignment in sync_data.assignments:
                     course_id = course_mapping.get(str(canvas_assignment.course_id))
                     if not course_id:
@@ -218,7 +226,7 @@ class DatabaseService:
                     if canvas_assignment.graded_at:
                         status = 'completed'
                     
-                    await conn.execute("""
+                    row = await conn.fetchrow("""
                         INSERT INTO assignments 
                         (user_id, course_id, canvas_assignment_id, title, description, 
                          due_date, points_possible, submission_types, status, 
@@ -235,6 +243,7 @@ class DatabaseService:
                             submitted_at = EXCLUDED.submitted_at,
                             graded_at = EXCLUDED.graded_at,
                             updated_at = NOW()
+                        RETURNING id
                     """,
                     uuid.UUID(user_id),
                     course_id,
@@ -248,6 +257,7 @@ class DatabaseService:
                     canvas_assignment.submitted_at,
                     canvas_assignment.graded_at
                     )
+                    assignment_mapping[str(canvas_assignment.id)] = row['id']
                     total_synced += 1
                 
                 # Sync grades
@@ -281,6 +291,95 @@ class DatabaseService:
                     )
                     total_synced += 1
                 
+                # Sync announcements
+                for announcement in sync_data.announcements:
+                    course_id = course_mapping.get(str(announcement.course_id))
+                    if not course_id:
+                        continue
+                    
+                    await self._sync_announcement(conn, user_id, course_id, announcement)
+                    total_synced += 1
+                
+                # Sync discussions
+                for discussion in sync_data.discussions:
+                    course_id = course_mapping.get(str(discussion.course_id))
+                    if not course_id:
+                        continue
+                    
+                    await self._sync_discussion(conn, user_id, course_id, discussion)
+                    total_synced += 1
+                
+                # Sync calendar events
+                for event in sync_data.calendar_events:
+                    course_id = None
+                    if event.course_id:
+                        course_id = course_mapping.get(str(event.course_id))
+                    
+                    await self._sync_calendar_event(conn, user_id, course_id, event)
+                    total_synced += 1
+                
+                # Sync modules and get module mapping
+                module_mapping = {}
+                for module in sync_data.modules:
+                    course_id = course_mapping.get(str(module.course_id))
+                    if not course_id:
+                        continue
+                    
+                    row = await self._sync_module(conn, user_id, course_id, module)
+                    module_mapping[str(module.id)] = row['id']
+                    total_synced += 1
+                
+                # Sync module items
+                for item in sync_data.module_items:
+                    course_id = course_mapping.get(str(item.course_id))
+                    module_id = module_mapping.get(str(item.module_id))
+                    if not course_id or not module_id:
+                        continue
+                    
+                    await self._sync_module_item(conn, user_id, course_id, module_id, item)
+                    total_synced += 1
+                
+                # Sync quizzes
+                for quiz in sync_data.quizzes:
+                    course_id = course_mapping.get(str(quiz.course_id))
+                    if not course_id:
+                        continue
+                    
+                    # Find related assignment if exists
+                    assignment_id = None
+                    if quiz.assignment_id:
+                        assignment_id = assignment_mapping.get(str(quiz.assignment_id))
+                    
+                    await self._sync_quiz(conn, user_id, course_id, assignment_id, quiz)
+                    total_synced += 1
+                
+                # Sync files
+                for file in sync_data.files:
+                    course_id = None
+                    if file.course_id:
+                        course_id = course_mapping.get(str(file.course_id))
+                    
+                    await self._sync_file(conn, user_id, course_id, file)
+                    total_synced += 1
+                
+                # Sync pages
+                for page in sync_data.pages:
+                    course_id = course_mapping.get(str(page.course_id))
+                    if not course_id:
+                        continue
+                    
+                    await self._sync_page(conn, user_id, course_id, page)
+                    total_synced += 1
+                
+                # Sync rubrics
+                for rubric in sync_data.rubrics:
+                    course_id = course_mapping.get(str(rubric.course_id))
+                    if not course_id:
+                        continue
+                    
+                    await self._sync_rubric(conn, user_id, course_id, rubric)
+                    total_synced += 1
+                
                 # Update connection last sync time
                 await conn.execute("""
                     UPDATE canvas_connections 
@@ -290,6 +389,231 @@ class DatabaseService:
         
         logger.info(f"Synced {total_synced} items for user {user_id}")
         return total_synced
+    
+    async def _sync_user_profile(self, conn, user_id: str, profile: CanvasUserProfile):
+        """Sync Canvas user profile"""
+        await conn.execute("""
+            INSERT INTO canvas_user_profiles 
+            (user_id, canvas_user_id, name, short_name, sortable_name, 
+             avatar_url, bio, primary_email, login_id, time_zone, locale)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            ON CONFLICT (user_id, canvas_user_id) 
+            DO UPDATE SET
+                name = EXCLUDED.name,
+                short_name = EXCLUDED.short_name,
+                sortable_name = EXCLUDED.sortable_name,
+                avatar_url = EXCLUDED.avatar_url,
+                bio = EXCLUDED.bio,
+                primary_email = EXCLUDED.primary_email,
+                login_id = EXCLUDED.login_id,
+                time_zone = EXCLUDED.time_zone,
+                locale = EXCLUDED.locale,
+                updated_at = NOW()
+        """,
+        uuid.UUID(user_id), str(profile.id), profile.name, profile.short_name,
+        profile.sortable_name, profile.avatar_url, profile.bio, profile.primary_email,
+        profile.login_id, profile.time_zone, profile.locale)
+    
+    async def _sync_announcement(self, conn, user_id: str, course_id: str, announcement: CanvasAnnouncement):
+        """Sync Canvas announcement"""
+        author_info = announcement.author or {}
+        await conn.execute("""
+            INSERT INTO canvas_announcements 
+            (user_id, course_id, canvas_announcement_id, title, message, 
+             posted_at, delayed_post_at, author_name, author_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (course_id, canvas_announcement_id) 
+            DO UPDATE SET
+                title = EXCLUDED.title,
+                message = EXCLUDED.message,
+                posted_at = EXCLUDED.posted_at,
+                delayed_post_at = EXCLUDED.delayed_post_at,
+                author_name = EXCLUDED.author_name,
+                author_id = EXCLUDED.author_id,
+                updated_at = NOW()
+        """,
+        uuid.UUID(user_id), course_id, str(announcement.id), announcement.title,
+        announcement.message, announcement.posted_at, announcement.delayed_post_at,
+        author_info.get('display_name'), str(author_info.get('id')) if author_info.get('id') else None)
+    
+    async def _sync_discussion(self, conn, user_id: str, course_id: str, discussion: CanvasDiscussion):
+        """Sync Canvas discussion"""
+        author_info = discussion.author or {}
+        await conn.execute("""
+            INSERT INTO canvas_discussions 
+            (user_id, course_id, canvas_discussion_id, title, message, 
+             posted_at, last_reply_at, discussion_type, author_name, author_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT (course_id, canvas_discussion_id) 
+            DO UPDATE SET
+                title = EXCLUDED.title,
+                message = EXCLUDED.message,
+                posted_at = EXCLUDED.posted_at,
+                last_reply_at = EXCLUDED.last_reply_at,
+                discussion_type = EXCLUDED.discussion_type,
+                author_name = EXCLUDED.author_name,
+                author_id = EXCLUDED.author_id,
+                updated_at = NOW()
+        """,
+        uuid.UUID(user_id), course_id, str(discussion.id), discussion.title,
+        discussion.message, discussion.posted_at, discussion.last_reply_at,
+        discussion.discussion_type, author_info.get('display_name'), 
+        str(author_info.get('id')) if author_info.get('id') else None)
+    
+    async def _sync_calendar_event(self, conn, user_id: str, course_id: str, event: CanvasCalendarEvent):
+        """Sync Canvas calendar event"""
+        await conn.execute("""
+            INSERT INTO canvas_calendar_events 
+            (user_id, course_id, canvas_event_id, title, description, 
+             start_at, end_at, location_name, context_code, workflow_state)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT (user_id, canvas_event_id) 
+            DO UPDATE SET
+                course_id = EXCLUDED.course_id,
+                title = EXCLUDED.title,
+                description = EXCLUDED.description,
+                start_at = EXCLUDED.start_at,
+                end_at = EXCLUDED.end_at,
+                location_name = EXCLUDED.location_name,
+                context_code = EXCLUDED.context_code,
+                workflow_state = EXCLUDED.workflow_state,
+                updated_at = NOW()
+        """,
+        uuid.UUID(user_id), course_id, str(event.id), event.title,
+        event.description, event.start_at, event.end_at, event.location_name,
+        event.context_code, event.workflow_state)
+    
+    async def _sync_module(self, conn, user_id: str, course_id: str, module: CanvasModule):
+        """Sync Canvas module"""
+        return await conn.fetchrow("""
+            INSERT INTO canvas_modules 
+            (user_id, course_id, canvas_module_id, name, position, 
+             unlock_at, require_sequential_progress, prerequisite_module_ids, state)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (course_id, canvas_module_id) 
+            DO UPDATE SET
+                name = EXCLUDED.name,
+                position = EXCLUDED.position,
+                unlock_at = EXCLUDED.unlock_at,
+                require_sequential_progress = EXCLUDED.require_sequential_progress,
+                prerequisite_module_ids = EXCLUDED.prerequisite_module_ids,
+                state = EXCLUDED.state,
+                updated_at = NOW()
+            RETURNING id
+        """,
+        uuid.UUID(user_id), course_id, str(module.id), module.name,
+        module.position, module.unlock_at, module.require_sequential_progress,
+        [str(pid) for pid in module.prerequisite_module_ids] if module.prerequisite_module_ids else None,
+        module.state)
+    
+    async def _sync_module_item(self, conn, user_id: str, course_id: str, module_id: str, item: CanvasModuleItem):
+        """Sync Canvas module item"""
+        await conn.execute("""
+            INSERT INTO canvas_module_items 
+            (user_id, course_id, module_id, canvas_item_id, title, position, 
+             type, content_id, html_url, url, completion_requirement)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            ON CONFLICT (module_id, canvas_item_id) 
+            DO UPDATE SET
+                title = EXCLUDED.title,
+                position = EXCLUDED.position,
+                type = EXCLUDED.type,
+                content_id = EXCLUDED.content_id,
+                html_url = EXCLUDED.html_url,
+                url = EXCLUDED.url,
+                completion_requirement = EXCLUDED.completion_requirement,
+                updated_at = NOW()
+        """,
+        uuid.UUID(user_id), course_id, module_id, str(item.id), item.title,
+        item.position, item.type, str(item.content_id) if item.content_id else None,
+        item.html_url, item.url, json.dumps(item.completion_requirement) if item.completion_requirement else None)
+    
+    async def _sync_quiz(self, conn, user_id: str, course_id: str, assignment_id: str, quiz: CanvasQuiz):
+        """Sync Canvas quiz"""
+        await conn.execute("""
+            INSERT INTO canvas_quizzes 
+            (user_id, course_id, canvas_quiz_id, title, description, quiz_type, 
+             assignment_id, time_limit, allowed_attempts, due_at, unlock_at, 
+             lock_at, points_possible)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ON CONFLICT (course_id, canvas_quiz_id) 
+            DO UPDATE SET
+                title = EXCLUDED.title,
+                description = EXCLUDED.description,
+                quiz_type = EXCLUDED.quiz_type,
+                assignment_id = EXCLUDED.assignment_id,
+                time_limit = EXCLUDED.time_limit,
+                allowed_attempts = EXCLUDED.allowed_attempts,
+                due_at = EXCLUDED.due_at,
+                unlock_at = EXCLUDED.unlock_at,
+                lock_at = EXCLUDED.lock_at,
+                points_possible = EXCLUDED.points_possible,
+                updated_at = NOW()
+        """,
+        uuid.UUID(user_id), course_id, str(quiz.id), quiz.title, quiz.description,
+        quiz.quiz_type, assignment_id, quiz.time_limit, quiz.allowed_attempts,
+        quiz.due_at, quiz.unlock_at, quiz.lock_at, quiz.points_possible)
+    
+    async def _sync_file(self, conn, user_id: str, course_id: str, file: CanvasFile):
+        """Sync Canvas file"""
+        await conn.execute("""
+            INSERT INTO canvas_files 
+            (user_id, course_id, canvas_file_id, display_name, filename, 
+             content_type, url, size, folder_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (user_id, canvas_file_id) 
+            DO UPDATE SET
+                course_id = EXCLUDED.course_id,
+                display_name = EXCLUDED.display_name,
+                filename = EXCLUDED.filename,
+                content_type = EXCLUDED.content_type,
+                url = EXCLUDED.url,
+                size = EXCLUDED.size,
+                folder_id = EXCLUDED.folder_id,
+                updated_at = NOW()
+        """,
+        uuid.UUID(user_id), course_id, str(file.id), file.display_name,
+        file.filename, file.content_type, file.url, file.size,
+        str(file.folder_id) if file.folder_id else None)
+    
+    async def _sync_page(self, conn, user_id: str, course_id: str, page: CanvasPage):
+        """Sync Canvas page"""
+        await conn.execute("""
+            INSERT INTO canvas_pages 
+            (user_id, course_id, canvas_page_id, title, body, 
+             published, front_page, url)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (course_id, canvas_page_id) 
+            DO UPDATE SET
+                title = EXCLUDED.title,
+                body = EXCLUDED.body,
+                published = EXCLUDED.published,
+                front_page = EXCLUDED.front_page,
+                url = EXCLUDED.url,
+                updated_at = NOW()
+        """,
+        uuid.UUID(user_id), course_id, str(page.id) if page.id else None,
+        page.title, page.body, page.published, page.front_page, page.url)
+    
+    async def _sync_rubric(self, conn, user_id: str, course_id: str, rubric: CanvasRubric):
+        """Sync Canvas rubric"""
+        await conn.execute("""
+            INSERT INTO canvas_rubrics 
+            (user_id, course_id, canvas_rubric_id, title, context_id, 
+             context_type, points_possible, criteria)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (course_id, canvas_rubric_id) 
+            DO UPDATE SET
+                title = EXCLUDED.title,
+                context_id = EXCLUDED.context_id,
+                context_type = EXCLUDED.context_type,
+                points_possible = EXCLUDED.points_possible,
+                criteria = EXCLUDED.criteria,
+                updated_at = NOW()
+        """,
+        uuid.UUID(user_id), course_id, str(rubric.id), rubric.title,
+        str(rubric.context_id) if rubric.context_id else None, rubric.context_type,
+        rubric.points_possible, json.dumps(rubric.criteria) if rubric.criteria else None)
     
     async def get_user_courses(self, user_id: str) -> List[Course]:
         """Get all courses for user"""
@@ -424,6 +748,330 @@ class DatabaseService:
             """, uuid.UUID(user_id), limit)
             
             return [SyncLog(**dict(row)) for row in rows]
+    
+    # New methods for comprehensive Canvas data retrieval
+    async def get_user_announcements(
+        self, 
+        user_id: str, 
+        course_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0
+    ):
+        """Get Canvas announcements for user"""
+        query = """
+            SELECT ca.*, c.name as course_name 
+            FROM canvas_announcements ca
+            JOIN courses c ON ca.course_id = c.id
+            WHERE ca.user_id = $1
+        """
+        params = [uuid.UUID(user_id)]
+        param_count = 1
+        
+        if course_id:
+            param_count += 1
+            query += f" AND ca.course_id = ${param_count}"
+            params.append(uuid.UUID(course_id))
+        
+        query += " ORDER BY ca.posted_at DESC NULLS LAST"
+        
+        param_count += 1
+        query += f" LIMIT ${param_count}"
+        params.append(limit)
+        
+        param_count += 1
+        query += f" OFFSET ${param_count}"
+        params.append(offset)
+        
+        async with self.connection_pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+            return [dict(row) for row in rows]
+    
+    async def get_user_discussions(
+        self, 
+        user_id: str, 
+        course_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0
+    ):
+        """Get Canvas discussions for user"""
+        query = """
+            SELECT cd.*, c.name as course_name 
+            FROM canvas_discussions cd
+            JOIN courses c ON cd.course_id = c.id
+            WHERE cd.user_id = $1
+        """
+        params = [uuid.UUID(user_id)]
+        param_count = 1
+        
+        if course_id:
+            param_count += 1
+            query += f" AND cd.course_id = ${param_count}"
+            params.append(uuid.UUID(course_id))
+        
+        query += " ORDER BY cd.posted_at DESC NULLS LAST"
+        
+        param_count += 1
+        query += f" LIMIT ${param_count}"
+        params.append(limit)
+        
+        param_count += 1
+        query += f" OFFSET ${param_count}"
+        params.append(offset)
+        
+        async with self.connection_pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+            return [dict(row) for row in rows]
+    
+    async def get_user_calendar_events(
+        self,
+        user_id: str,
+        course_id: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0
+    ):
+        """Get Canvas calendar events for user"""
+        query = """
+            SELECT ce.*, c.name as course_name 
+            FROM canvas_calendar_events ce
+            LEFT JOIN courses c ON ce.course_id = c.id
+            WHERE ce.user_id = $1
+        """
+        params = [uuid.UUID(user_id)]
+        param_count = 1
+        
+        if course_id:
+            param_count += 1
+            query += f" AND ce.course_id = ${param_count}"
+            params.append(uuid.UUID(course_id))
+        
+        if start_date:
+            param_count += 1
+            query += f" AND ce.start_at >= ${param_count}"
+            params.append(start_date)
+        
+        if end_date:
+            param_count += 1
+            query += f" AND ce.end_at <= ${param_count}"
+            params.append(end_date)
+        
+        query += " ORDER BY ce.start_at ASC NULLS LAST"
+        
+        param_count += 1
+        query += f" LIMIT ${param_count}"
+        params.append(limit)
+        
+        param_count += 1
+        query += f" OFFSET ${param_count}"
+        params.append(offset)
+        
+        async with self.connection_pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+            return [dict(row) for row in rows]
+    
+    async def get_user_modules(
+        self, 
+        user_id: str, 
+        course_id: Optional[str] = None
+    ):
+        """Get Canvas modules for user"""
+        query = """
+            SELECT cm.*, c.name as course_name 
+            FROM canvas_modules cm
+            JOIN courses c ON cm.course_id = c.id
+            WHERE cm.user_id = $1
+        """
+        params = [uuid.UUID(user_id)]
+        
+        if course_id:
+            query += " AND cm.course_id = $2"
+            params.append(uuid.UUID(course_id))
+        
+        query += " ORDER BY c.name, cm.position ASC NULLS LAST"
+        
+        async with self.connection_pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+            return [dict(row) for row in rows]
+    
+    async def get_user_module_items(
+        self, 
+        user_id: str, 
+        course_id: Optional[str] = None,
+        module_id: Optional[str] = None
+    ):
+        """Get Canvas module items for user"""
+        query = """
+            SELECT cmi.*, c.name as course_name, cm.name as module_name 
+            FROM canvas_module_items cmi
+            JOIN courses c ON cmi.course_id = c.id
+            JOIN canvas_modules cm ON cmi.module_id = cm.id
+            WHERE cmi.user_id = $1
+        """
+        params = [uuid.UUID(user_id)]
+        param_count = 1
+        
+        if course_id:
+            param_count += 1
+            query += f" AND cmi.course_id = ${param_count}"
+            params.append(uuid.UUID(course_id))
+        
+        if module_id:
+            param_count += 1
+            query += f" AND cmi.module_id = ${param_count}"
+            params.append(uuid.UUID(module_id))
+        
+        query += " ORDER BY c.name, cm.position, cmi.position ASC NULLS LAST"
+        
+        async with self.connection_pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+            return [dict(row) for row in rows]
+    
+    async def get_user_quizzes(
+        self, 
+        user_id: str, 
+        course_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0
+    ):
+        """Get Canvas quizzes for user"""
+        query = """
+            SELECT cq.*, c.name as course_name 
+            FROM canvas_quizzes cq
+            JOIN courses c ON cq.course_id = c.id
+            WHERE cq.user_id = $1
+        """
+        params = [uuid.UUID(user_id)]
+        param_count = 1
+        
+        if course_id:
+            param_count += 1
+            query += f" AND cq.course_id = ${param_count}"
+            params.append(uuid.UUID(course_id))
+        
+        query += " ORDER BY cq.due_at ASC NULLS LAST"
+        
+        param_count += 1
+        query += f" LIMIT ${param_count}"
+        params.append(limit)
+        
+        param_count += 1
+        query += f" OFFSET ${param_count}"
+        params.append(offset)
+        
+        async with self.connection_pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+            return [dict(row) for row in rows]
+    
+    async def get_user_files(
+        self, 
+        user_id: str, 
+        course_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0
+    ):
+        """Get Canvas files for user"""
+        query = """
+            SELECT cf.*, c.name as course_name 
+            FROM canvas_files cf
+            LEFT JOIN courses c ON cf.course_id = c.id
+            WHERE cf.user_id = $1
+        """
+        params = [uuid.UUID(user_id)]
+        param_count = 1
+        
+        if course_id:
+            param_count += 1
+            query += f" AND cf.course_id = ${param_count}"
+            params.append(uuid.UUID(course_id))
+        
+        query += " ORDER BY cf.updated_at DESC NULLS LAST"
+        
+        param_count += 1
+        query += f" LIMIT ${param_count}"
+        params.append(limit)
+        
+        param_count += 1
+        query += f" OFFSET ${param_count}"
+        params.append(offset)
+        
+        async with self.connection_pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+            return [dict(row) for row in rows]
+    
+    async def get_user_pages(
+        self, 
+        user_id: str, 
+        course_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0
+    ):
+        """Get Canvas pages for user"""
+        query = """
+            SELECT cp.*, c.name as course_name 
+            FROM canvas_pages cp
+            JOIN courses c ON cp.course_id = c.id
+            WHERE cp.user_id = $1
+        """
+        params = [uuid.UUID(user_id)]
+        param_count = 1
+        
+        if course_id:
+            param_count += 1
+            query += f" AND cp.course_id = ${param_count}"
+            params.append(uuid.UUID(course_id))
+        
+        query += " ORDER BY cp.updated_at DESC NULLS LAST"
+        
+        param_count += 1
+        query += f" LIMIT ${param_count}"
+        params.append(limit)
+        
+        param_count += 1
+        query += f" OFFSET ${param_count}"
+        params.append(offset)
+        
+        async with self.connection_pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+            return [dict(row) for row in rows]
+    
+    async def get_user_rubrics(
+        self, 
+        user_id: str, 
+        course_id: Optional[str] = None
+    ):
+        """Get Canvas rubrics for user"""
+        query = """
+            SELECT cr.*, c.name as course_name 
+            FROM canvas_rubrics cr
+            JOIN courses c ON cr.course_id = c.id
+            WHERE cr.user_id = $1
+        """
+        params = [uuid.UUID(user_id)]
+        
+        if course_id:
+            query += " AND cr.course_id = $2"
+            params.append(uuid.UUID(course_id))
+        
+        query += " ORDER BY c.name, cr.title"
+        
+        async with self.connection_pool.acquire() as conn:
+            rows = await conn.fetch(query, *params)
+            return [dict(row) for row in rows]
+    
+    async def get_canvas_user_profile(self, user_id: str):
+        """Get Canvas user profile for user"""
+        async with self.connection_pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT * FROM canvas_user_profiles 
+                WHERE user_id = $1
+                ORDER BY updated_at DESC
+                LIMIT 1
+            """, uuid.UUID(user_id))
+            
+            if row:
+                return dict(row)
+            return None
 
 
 # Global database service instance

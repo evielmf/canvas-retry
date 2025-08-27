@@ -12,7 +12,10 @@ from typing import List, Optional
 from app.models.schemas import (
     CanvasTokenRequest, CanvasTokenUpdate, SyncRequest, 
     CanvasConnection, CanvasValidationResponse, SyncResponse,
-    Course, Assignment, Grade, CanvasDataResponse
+    Course, Assignment, Grade, CanvasDataResponse,
+    CanvasAnnouncement, CanvasDiscussion, CanvasCalendarEvent,
+    CanvasModule, CanvasModuleItem, CanvasQuiz, CanvasFile,
+    CanvasPage, CanvasRubric, CanvasUserProfile
 )
 from app.services.canvas_service import CanvasAPIClient
 from app.services.database_service import db_service
@@ -373,3 +376,257 @@ async def get_canvas_data(
     except Exception as e:
         logger.error("Failed to get Canvas data", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to retrieve Canvas data")
+
+
+@router.get("/announcements")
+async def get_announcements(
+    course_id: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get Canvas announcements for the current user"""
+    try:
+        announcements = await db_service.get_user_announcements(
+            user_id=current_user["sub"],
+            course_id=course_id,
+            limit=limit,
+            offset=offset
+        )
+        return announcements
+    except Exception as e:
+        logger.error("Failed to get announcements", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve announcements")
+
+
+@router.get("/discussions")
+async def get_discussions(
+    course_id: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get Canvas discussions for the current user"""
+    try:
+        discussions = await db_service.get_user_discussions(
+            user_id=current_user["sub"],
+            course_id=course_id,
+            limit=limit,
+            offset=offset
+        )
+        return discussions
+    except Exception as e:
+        logger.error("Failed to get discussions", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve discussions")
+
+
+@router.get("/calendar-events")
+async def get_calendar_events(
+    course_id: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get Canvas calendar events for the current user"""
+    try:
+        events = await db_service.get_user_calendar_events(
+            user_id=current_user["sub"],
+            course_id=course_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            offset=offset
+        )
+        return events
+    except Exception as e:
+        logger.error("Failed to get calendar events", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve calendar events")
+
+
+@router.get("/modules")
+async def get_modules(
+    course_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get Canvas modules for the current user"""
+    try:
+        modules = await db_service.get_user_modules(
+            user_id=current_user["sub"],
+            course_id=course_id
+        )
+        return modules
+    except Exception as e:
+        logger.error("Failed to get modules", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve modules")
+
+
+@router.get("/module-items")
+async def get_module_items(
+    course_id: Optional[str] = None,
+    module_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get Canvas module items for the current user"""
+    try:
+        items = await db_service.get_user_module_items(
+            user_id=current_user["sub"],
+            course_id=course_id,
+            module_id=module_id
+        )
+        return items
+    except Exception as e:
+        logger.error("Failed to get module items", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve module items")
+
+
+@router.get("/quizzes")
+async def get_quizzes(
+    course_id: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get Canvas quizzes for the current user"""
+    try:
+        quizzes = await db_service.get_user_quizzes(
+            user_id=current_user["sub"],
+            course_id=course_id,
+            limit=limit,
+            offset=offset
+        )
+        return quizzes
+    except Exception as e:
+        logger.error("Failed to get quizzes", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve quizzes")
+
+
+@router.get("/files")
+async def get_files(
+    course_id: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get Canvas files for the current user"""
+    try:
+        files = await db_service.get_user_files(
+            user_id=current_user["sub"],
+            course_id=course_id,
+            limit=limit,
+            offset=offset
+        )
+        return files
+    except Exception as e:
+        logger.error("Failed to get files", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve files")
+
+
+@router.get("/pages")
+async def get_pages(
+    course_id: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get Canvas pages for the current user"""
+    try:
+        pages = await db_service.get_user_pages(
+            user_id=current_user["sub"],
+            course_id=course_id,
+            limit=limit,
+            offset=offset
+        )
+        return pages
+    except Exception as e:
+        logger.error("Failed to get pages", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve pages")
+
+
+@router.get("/rubrics")
+async def get_rubrics(
+    course_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get Canvas rubrics for the current user"""
+    try:
+        rubrics = await db_service.get_user_rubrics(
+            user_id=current_user["sub"],
+            course_id=course_id
+        )
+        return rubrics
+    except Exception as e:
+        logger.error("Failed to get rubrics", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve rubrics")
+
+
+@router.get("/profile")
+async def get_user_profile(
+    current_user: dict = Depends(get_current_user)
+):
+    """Get Canvas user profile for the current user"""
+    try:
+        profile = await db_service.get_canvas_user_profile(current_user["sub"])
+        return profile
+    except Exception as e:
+        logger.error("Failed to get user profile", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve user profile")
+
+
+@router.get("/comprehensive-data")
+async def get_comprehensive_canvas_data(
+    current_user: dict = Depends(get_current_user)
+):
+    """Get ALL Canvas data for the current user in one request"""
+    try:
+        # Get all data in parallel for maximum performance
+        results = await asyncio.gather(
+            db_service.get_user_courses(current_user["sub"]),
+            db_service.get_user_assignments(current_user["sub"]),
+            db_service.get_user_grades(current_user["sub"]),
+            db_service.get_user_announcements(current_user["sub"]),
+            db_service.get_user_discussions(current_user["sub"]),
+            db_service.get_user_calendar_events(current_user["sub"]),
+            db_service.get_user_modules(current_user["sub"]),
+            db_service.get_user_module_items(current_user["sub"]),
+            db_service.get_user_quizzes(current_user["sub"]),
+            db_service.get_user_files(current_user["sub"]),
+            db_service.get_user_pages(current_user["sub"]),
+            db_service.get_user_rubrics(current_user["sub"]),
+            db_service.get_canvas_user_profile(current_user["sub"]),
+            db_service.get_recent_sync_logs(current_user["sub"], 1),
+            return_exceptions=True
+        )
+        
+        (courses, assignments, grades, announcements, discussions, 
+         calendar_events, modules, module_items, quizzes, files, 
+         pages, rubrics, user_profile, sync_logs) = results
+        
+        # Handle any exceptions by returning empty lists
+        def safe_result(result, default=None):
+            if isinstance(result, Exception):
+                logger.warning(f"Failed to fetch data: {result}")
+                return [] if default is None else default
+            return result
+        
+        return {
+            "courses": safe_result(courses, []),
+            "assignments": safe_result(assignments, []),
+            "grades": safe_result(grades, []),
+            "announcements": safe_result(announcements, []),
+            "discussions": safe_result(discussions, []),
+            "calendar_events": safe_result(calendar_events, []),
+            "modules": safe_result(modules, []),
+            "module_items": safe_result(module_items, []),
+            "quizzes": safe_result(quizzes, []),
+            "files": safe_result(files, []),
+            "pages": safe_result(pages, []),
+            "rubrics": safe_result(rubrics, []),
+            "user_profile": safe_result(user_profile, None),
+            "sync_info": safe_result(sync_logs, [])[0] if safe_result(sync_logs, []) else None
+        }
+        
+    except Exception as e:
+        logger.error("Failed to get comprehensive Canvas data", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve comprehensive Canvas data")
