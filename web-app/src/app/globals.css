@@ -133,6 +133,19 @@
   }
 }
 
+/* Screen reader only - visually hidden but accessible to screen readers */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Sage color utility classes */
 @layer utilities {
   .text-sage-50 { color: var(--sage-50); }
@@ -170,4 +183,44 @@
   
   .hover\:bg-sage-700:hover { background-color: var(--sage-700); }
   .hover\:border-sage-300:hover { border-color: var(--sage-300); }
+  
+  /* Dynamic course color indicator */
+  .course-color-indicator {
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 9999px;
+    margin-top: 0.5rem;
+    flex-shrink: 0;
+    background-color: #3b82f6; /* fallback color */
+  }
+  
+  /* Dynamic grade distribution bar */
+  .grade-distribution-bar {
+    height: 0.5rem;
+    border-radius: 9999px;
+    transition: width 0.3s ease-in-out;
+  }
+  
+  /* Utility classes for different grade widths */
+  .w-0 { width: 0%; }
+  .w-5 { width: 5%; }
+  .w-10 { width: 10%; }
+  .w-15 { width: 15%; }
+  .w-20 { width: 20%; }
+  .w-25 { width: 25%; }
+  .w-30 { width: 30%; }
+  .w-35 { width: 35%; }
+  .w-40 { width: 40%; }
+  .w-45 { width: 45%; }
+  .w-50 { width: 50%; }
+  .w-55 { width: 55%; }
+  .w-60 { width: 60%; }
+  .w-65 { width: 65%; }
+  .w-70 { width: 70%; }
+  .w-75 { width: 75%; }
+  .w-80 { width: 80%; }
+  .w-85 { width: 85%; }
+  .w-90 { width: 90%; }
+  .w-95 { width: 95%; }
+  .w-100 { width: 100%; }
 }

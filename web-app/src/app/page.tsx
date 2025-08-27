@@ -43,9 +43,9 @@ export default function HomePage() {
       const { data: { user } } = await supabase.auth.getUser()
       setUser(user)
       
-      // Redirect authenticated users to Easeboard
+      // Redirect authenticated users to dashboard
       if (user) {
-        router.push('/easeboard')
+        router.push('/dashboard')
       }
     }
     getUser()

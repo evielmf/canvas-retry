@@ -90,7 +90,7 @@ export default function SettingsPage() {
     },
     onError: (error) => {
       toast.error('Failed to update profile')
-      console.error(error)
+      console.error('Profile update error:', error || 'Unknown error occurred')
     }
   })
 
@@ -118,7 +118,7 @@ export default function SettingsPage() {
     },
     onError: (error) => {
       toast.error('Failed to add Canvas connection')
-      console.error(error)
+      console.error('Canvas connection error:', error || 'Unknown error occurred')
     }
   })
 
@@ -131,7 +131,7 @@ export default function SettingsPage() {
     },
     onError: (error) => {
       toast.error('Failed to remove connection')
-      console.error(error)
+      console.error('Canvas connection removal error:', error || 'Unknown error occurred')
     }
   })
 

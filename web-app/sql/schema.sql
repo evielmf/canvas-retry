@@ -1,9 +1,6 @@
 -- Easeboard Database Schema
 -- Production-ready schema for Canvas LMS Dashboard
 
--- Enable Row Level Security
-ALTER DATABASE postgres SET "app.settings.jwt_secret" = 'super-secret-jwt-token-with-at-least-32-characters-long';
-
 -- Create custom types
 CREATE TYPE assignment_status AS ENUM ('upcoming', 'in_progress', 'completed', 'overdue', 'submitted');
 CREATE TYPE notification_type AS ENUM ('assignment', 'grade', 'announcement', 'reminder', 'system');

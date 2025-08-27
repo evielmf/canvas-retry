@@ -1,0 +1,54 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
+
+export async function GET(request: NextRequest) {
+  try {
+    // Get the current user session
+    const supabase = await createClient()
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    
+    if (sessionError || !session) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    // Get query parameters
+    const { searchParams } = new URL(request.url)
+    const courseId = searchParams.get('course_id')
+
+    // Build query parameters for backend
+    const queryParams = new URLSearchParams()
+    if (courseId) queryParams.append('course_id', courseId)
+
+    // Forward request to FastAPI backend
+    const response = await fetch(`${BACKEND_URL}/api/v1/canvas/grades?${queryParams}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      return NextResponse.json(
+        { error: error.detail || 'Failed to fetch grades' },
+        { status: response.status }
+      )
+    }
+
+    const data = await response.json()
+    return NextResponse.json(data)
+
+  } catch (error) {
+    console.error('Error fetching grades:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
